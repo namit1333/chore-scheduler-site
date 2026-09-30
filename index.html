@@ -1,0 +1,1040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chore Scheduler — track household chores</title>
+  <meta name="description" content="Create a chore schedule, see who is responsible today, and track chores together. Free, private, and works in your browser.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+  <style>
+    /* Chore Scheduler — clean, responsive, light/dark via prefers-color-scheme. */
+
+    :root {
+      --bg: #f6f7fb;
+      --surface: #ffffff;
+      --surface-2: #eef0f6;
+      --text: #1b2130;
+      --muted: #6b7280;
+      --accent: #4f6df5;
+      --accent-soft: #e3e8ff;
+      --good: #16a34a;
+      --good-soft: #dcfce7;
+      --warn: #b45309;
+      --danger: #dc2626;
+      --line: #e3e6ee;
+      --shadow: 0 1px 3px rgba(16, 24, 40, .08), 0 8px 24px rgba(16, 24, 40, .06);
+      --radius: 14px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #12151d;
+        --surface: #1b202c;
+        --surface-2: #242b3a;
+        --text: #e8ebf3;
+        --muted: #98a2b3;
+        --accent: #8ba2ff;
+        --accent-soft: #26304f;
+        --good: #4ade80;
+        --good-soft: #143622;
+        --warn: #fbbf24;
+        --danger: #f87171;
+        --line: #2c3446;
+        --shadow: 0 1px 3px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .3);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    a { color: var(--accent); }
+
+    code {
+      background: var(--surface-2);
+      padding: .1em .4em;
+      border-radius: 6px;
+      font-size: .9em;
+    }
+
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 22px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark { font-size: 34px; }
+    .brand h1 { margin: 0; font-size: 20px; letter-spacing: -.01em; }
+    .tagline { margin: 0; color: var(--muted); font-size: 13px; }
+
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .tab {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-weight: 600;
+      font-size: 14px;
+      padding: 8px 16px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+
+    .tab:hover { background: var(--surface-2); color: var(--text); }
+    .tab.active { background: var(--accent); color: #fff; }
+
+    main {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 24px 22px 48px;
+    }
+
+    .view { display: flex; flex-direction: column; gap: 18px; }
+    .view[hidden] { display: none; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 0 4px;
+      font-size: 17px;
+    }
+
+    .section-title .date { color: var(--muted); font-weight: 500; font-size: 14px; }
+    .muted { color: var(--muted); }
+    .small { font-size: 13px; }
+
+    .progress {
+      height: 10px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      overflow: hidden;
+      margin: 10px 0 4px;
+    }
+
+    .progress > div {
+      height: 100%;
+      border-radius: 999px;
+      background: var(--good);
+      transition: width .3s ease;
+    }
+
+    .chore-list { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+
+    .chore-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+      transition: opacity .2s ease;
+    }
+
+    .chore-row.done { opacity: .55; }
+    .chore-row.done .chore-name { text-decoration: line-through; }
+    .chore-main { flex: 1; min-width: 0; }
+    .chore-name { font-weight: 600; }
+    .chore-meta { color: var(--muted); font-size: 13px; }
+
+    .avatar {
+      flex: none;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: var(--accent);
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .done-btn {
+      flex: none;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+
+    .done-btn:hover { border-color: var(--good); color: var(--good); }
+    .done-btn.is-done { background: var(--good-soft); border-color: transparent; color: var(--good); }
+
+    .week-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 14px;
+    }
+
+    .day-card { padding: 16px; }
+
+    .day-card h3 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .day-card h3 .num { color: var(--muted); font-weight: 500; }
+    .day-card.is-today { border-color: var(--accent); }
+    .day-card ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .day-card li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .day-card li .who { margin-left: auto; color: var(--muted); white-space: nowrap; }
+
+    .pill {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .person-row, .chore-config-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .person-row:last-child, .chore-config-row:last-child { border-bottom: 0; }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    label.field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 600; }
+
+    input[type="text"], input[type="email"], select {
+      font: inherit;
+      padding: 9px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--text);
+      width: 100%;
+    }
+
+    input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+    .day-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .chip {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      font: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 11px;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+
+    .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .btn {
+      font: inherit;
+      font-weight: 600;
+      font-size: 14px;
+      padding: 9px 18px;
+      border-radius: 10px;
+      border: 1px solid transparent;
+      cursor: pointer;
+    }
+
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { filter: brightness(1.08); }
+    .btn-ghost { background: transparent; color: var(--text); border-color: var(--line); }
+    .btn-ghost:hover { background: var(--surface-2); }
+    .btn-danger { background: transparent; color: var(--danger); border-color: transparent; padding: 6px 10px; }
+    .btn-danger:hover { background: var(--surface-2); }
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+    .notice {
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 14px;
+      background: var(--accent-soft);
+      color: var(--text);
+    }
+
+    .notice.good { background: var(--good-soft); }
+
+    .share-list { display: flex; flex-direction: column; gap: 14px; }
+    .share-item h3 { margin: 0 0 4px; font-size: 15px; }
+    .share-item p { margin: 0 0 10px; color: var(--muted); font-size: 14px; }
+
+    textarea {
+      width: 100%;
+      min-height: 90px;
+      font: inherit;
+      font-size: 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: var(--surface-2);
+      color: var(--text);
+      resize: vertical;
+    }
+
+    .footer {
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+      padding: 20px 22px 34px;
+      text-align: center;
+    }
+
+    .footer p { margin: 0 auto; max-width: 620px; }
+
+    @media (max-width: 560px) {
+      .topbar { padding: 14px 16px; }
+      main { padding: 18px 16px 40px; }
+      .brand h1 { font-size: 17px; }
+      .chore-row { flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">🧹</span>
+      <div>
+        <h1>Chore Scheduler</h1>
+        <p class="tagline" id="household-name">whose turn is it, anyway?</p>
+      </div>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button class="tab" data-view="today" role="tab">Today</button>
+      <button class="tab" data-view="week" role="tab">Week</button>
+      <button class="tab" data-view="setup" role="tab">Setup</button>
+      <button class="tab" data-view="share" role="tab">Share</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="view-today" class="view"></section>
+    <section id="view-week" class="view" hidden></section>
+    <section id="view-setup" class="view" hidden></section>
+    <section id="view-share" class="view" hidden></section>
+  </main>
+
+  <footer class="footer">
+    <p>
+      Everything stays in your browser — no account, no server.
+      Want automatic morning emails? Pair this with the
+      <a href="https://github.com/namit1333/chore-scheduler">Chore Scheduler CLI</a>
+      and download your <code>household.yaml</code> from the Share tab.
+    </p>
+  </footer>
+
+  <script>
+    /* Chore Scheduler web app — no build step, no server, no dependencies.
+     *
+     * The rotation engine below mirrors chores.py exactly:
+     *   rotation "daily"  -> the next person in line at every occurrence
+     *   rotation "weekly" -> the same person for a whole week (rotates Mondays)
+     * Occurrences are counted from Monday 2000-01-03, so the web and CLI agree.
+     */
+    "use strict";
+
+    const EPOCH_UTC = Date.UTC(2000, 0, 3); // a Monday
+    const DAY_MS = 86400000;
+    const WEEKDAY_SHORT = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+    const WEEKDAY_LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    const STORAGE_KEY = "choreScheduler.v1";
+    const DONE_KEY = "choreScheduler.done.v1";
+
+    function esc(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      })[ch]);
+    }
+
+    function todayDate() {
+      const now = new Date();
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    }
+
+    function addDays(date, n) {
+      return new Date(date.getFullYear(), date.getMonth(), date.getDate() + n);
+    }
+
+    function daysSinceEpoch(date) {
+      return Math.round((Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - EPOCH_UTC) / DAY_MS);
+    }
+
+    function weekdayIndex(date) {
+      return ((daysSinceEpoch(date) % 7) + 7) % 7; // 0 = Monday
+    }
+
+    function isoDate(date) {
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${date.getFullYear()}-${m}-${d}`;
+    }
+
+    function formatDateLong(date) {
+      return `${WEEKDAY_LONG[weekdayIndex(date)]}, ${date.toLocaleString(undefined, { month: "long" })} ${date.getDate()}`;
+    }
+
+    function initials(name) {
+      return String(name).trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase() || "?";
+    }
+
+    /* ------------------------------------------------ rotation engine */
+
+    function parseDays(value) {
+      if (typeof value === "string") value = [value];
+      if (!Array.isArray(value) || value.length === 0) return null;
+      const out = new Set();
+      for (const raw of value) {
+        if (Number.isInteger(raw) && raw >= 0 && raw <= 6) { out.add(raw); continue; }
+        const token = String(raw).trim().toLowerCase();
+        if (["daily", "everyday", "every day", "all"].includes(token)) {
+          [0, 1, 2, 3, 4, 5, 6].forEach((d) => out.add(d));
+        } else if (["weekdays", "weekday"].includes(token)) {
+          [0, 1, 2, 3, 4].forEach((d) => out.add(d));
+        } else if (["weekends", "weekend"].includes(token)) {
+          [5, 6].forEach((d) => out.add(d));
+        } else {
+          const idx = WEEKDAY_SHORT.indexOf(token.slice(0, 3));
+          if (idx === -1) return null;
+          out.add(idx);
+        }
+      }
+      return [...out].sort((a, b) => a - b);
+    }
+
+    function occurrenceOrdinal(choreDays, date) {
+      const d = daysSinceEpoch(date);
+      const weeks = Math.floor(d / 7);
+      const wd = ((d % 7) + 7) % 7;
+      return weeks * choreDays.length + choreDays.filter((x) => x < wd).length;
+    }
+
+    function assigneeFor(chore, date) {
+      if (!chore.days.includes(weekdayIndex(date))) return null;
+      const d = daysSinceEpoch(date);
+      const index = chore.rotation === "weekly"
+        ? Math.floor(d / 7)
+        : occurrenceOrdinal(chore.days, date);
+      return chore.assignees[index % chore.assignees.length] || null;
+    }
+
+    function assignmentsFor(config, date) {
+      const out = [];
+      for (const chore of config.chores) {
+        const who = assigneeFor(chore, date);
+        if (who) out.push({ chore, person: who });
+      }
+      return out;
+    }
+
+    /* ------------------------------------------------------- state */
+
+    const EXAMPLE_CONFIG = {
+      household: "Maple Street House",
+      sendTime: "07:00",
+      people: [
+        { name: "Alice", email: "alice@example.com" },
+        { name: "Bob", email: "bob@example.com" },
+        { name: "Carol", email: "carol@example.com" },
+      ],
+      chores: [
+        { name: "Dishes", days: [0, 2, 4], assignees: ["Alice", "Bob"], rotation: "daily" },
+        { name: "Trash & recycling", days: [1, 5], assignees: ["Alice", "Bob", "Carol"], rotation: "daily" },
+        { name: "Vacuum downstairs", days: [5], assignees: ["Bob", "Carol"], rotation: "weekly" },
+        { name: "Clean the kitchen", days: [6], assignees: ["Alice", "Carol"], rotation: "weekly" },
+        { name: "Water the plants", days: [0, 1, 2, 3, 4, 5, 6], assignees: ["Alice", "Bob", "Carol"], rotation: "daily" },
+      ],
+    };
+
+    let state = {
+      config: null,
+      done: {},            // { "2026-09-30": { "Dishes": true } } -- never shared
+      isExample: false,
+      editingChore: null,
+    };
+
+    function normalizeConfig(raw) {
+      const config = {
+        household: String(raw.household || "Our household"),
+        sendTime: String(raw.sendTime || raw.send_time || "07:00"),
+        people: [],
+        chores: [],
+      };
+      for (const p of raw.people || []) {
+        if (p && p.name && p.email) config.people.push({ name: String(p.name), email: String(p.email) });
+      }
+      for (const c of raw.chores || []) {
+        const days = parseDays(c.days);
+        const assignees = (Array.isArray(c.assignees) ? c.assignees : [])
+          .map(String).filter((who) => config.people.some((p) => p.name === who));
+        if (!c.name || !days || days.length === 0 || assignees.length === 0) continue;
+        config.chores.push({
+          name: String(c.name),
+          days,
+          assignees,
+          rotation: c.rotation === "weekly" ? "weekly" : "daily",
+        });
+      }
+      return config;
+    }
+
+    function loadState() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
+        const done = JSON.parse(localStorage.getItem(DONE_KEY) || "null") || {};
+        const savedConfig = saved && (saved.config || saved);
+        if (savedConfig && Array.isArray(savedConfig.people) && savedConfig.people.length) {
+          state.config = normalizeConfig(savedConfig);
+          state.isExample = !!saved.isExample;
+          state.done = done;
+          return;
+        }
+      } catch (err) { /* fall through to the example */ }
+      state.config = normalizeConfig(EXAMPLE_CONFIG);
+      state.isExample = true;
+      state.done = {};
+    }
+
+    function saveState() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        config: state.config, isExample: state.isExample,
+      }));
+      localStorage.setItem(DONE_KEY, JSON.stringify(state.done));
+    }
+
+    function isDone(date, choreName) {
+      return !!(state.done[isoDate(date)] || {})[choreName];
+    }
+
+    function toggleDone(date, choreName) {
+      const key = isoDate(date);
+      state.done[key] = state.done[key] || {};
+      if (state.done[key][choreName]) delete state.done[key][choreName];
+      else state.done[key][choreName] = true;
+      saveState();
+    }
+
+    /* ------------------------------------------------------ render */
+
+    let currentView = "today";
+
+    function render() {
+      document.getElementById("household-name").textContent =
+        state.config.household + (state.isExample ? " · example schedule" : "");
+      document.querySelectorAll(".tab").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.view === currentView);
+        btn.setAttribute("aria-selected", btn.dataset.view === currentView ? "true" : "false");
+      });
+      for (const view of ["today", "week", "setup", "share"]) {
+        document.getElementById(`view-${view}`).hidden = view !== currentView;
+      }
+      ({ today: renderToday, week: renderWeek, setup: renderSetup, share: renderShare })[currentView]();
+    }
+
+    function renderToday() {
+      const root = document.getElementById("view-today");
+      const date = todayDate();
+      const assignments = assignmentsFor(state.config, date);
+      const doneCount = assignments.filter(({ chore }) => isDone(date, chore.name)).length;
+      const pct = assignments.length ? Math.round((doneCount / assignments.length) * 100) : 0;
+
+      const rows = assignments.map(({ chore, person }) => {
+        const done = isDone(date, chore.name);
+        return `
+          <li class="chore-row${done ? " done" : ""}">
+            <div class="avatar" title="${esc(person)}">${esc(initials(person))}</div>
+            <div class="chore-main">
+              <div class="chore-name">${esc(chore.name)}</div>
+              <div class="chore-meta">${esc(person)} · ${esc(chore.rotation)} rotation</div>
+            </div>
+            <button class="done-btn${done ? " is-done" : ""}" data-done="${esc(chore.name)}">
+              ${done ? "✓ Done" : "Mark done"}
+            </button>
+          </li>`;
+      }).join("");
+
+      root.innerHTML = `
+        <div class="card">
+          <h2 class="section-title">Today <span class="date">${esc(formatDateLong(date))}</span></h2>
+          ${state.isExample ? `
+            <div class="notice">
+              This is a <strong>sample household</strong> so you can see how it works.
+              Open <strong>Setup</strong> to add your own people and chores.
+            </div>` : ""}
+          ${assignments.length ? `
+            <div class="progress" title="${doneCount} of ${assignments.length} done"><div style="width:${pct}%"></div></div>
+            <p class="muted small">${doneCount} of ${assignments.length} done${doneCount === assignments.length ? " — all clear! 🎉" : ""}</p>
+            <ul class="chore-list">${rows}</ul>
+          ` : `
+            <p class="muted">No chores scheduled for today. 🎉</p>
+          `}
+        </div>
+        <div class="card">
+          <h2 class="section-title">Who's on what</h2>
+          ${assignments.length ? `
+            <p class="muted small">${assignments
+              .map(({ chore, person }) => `<strong>${esc(person)}</strong> → ${esc(chore.name)}`)
+              .join(" &nbsp;·&nbsp; ")}</p>
+          ` : `<p class="muted small">Nothing due today — check the Week tab for what's coming up.</p>`}
+        </div>`;
+
+      root.querySelectorAll("[data-done]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          toggleDone(date, btn.dataset.done);
+          renderToday();
+        });
+      });
+    }
+
+    function renderWeek() {
+      const root = document.getElementById("view-week");
+      const start = todayDate();
+      const cards = [];
+      for (let i = 0; i < 7; i += 1) {
+        const date = addDays(start, i);
+        const assignments = assignmentsFor(state.config, date);
+        const doneCount = assignments.filter(({ chore }) => isDone(date, chore.name)).length;
+        const items = assignments.map(({ chore, person }) => `
+          <li>
+            <span>${isDone(date, chore.name) ? "✓" : "○"}</span>
+            <span>${esc(chore.name)}</span>
+            <span class="who">${esc(person)}</span>
+          </li>`).join("");
+        cards.push(`
+          <div class="card day-card${i === 0 ? " is-today" : ""}">
+            <h3>
+              ${i === 0 ? "Today · " : ""}${esc(WEEKDAY_LONG[weekdayIndex(date)].slice(0, 3))} ${date.getDate()}
+              <span class="num">${assignments.length ? `${doneCount}/${assignments.length} done` : "no chores"}</span>
+            </h3>
+            <ul>${items || `<li class="muted">—</li>`}</ul>
+          </div>`);
+      }
+      root.innerHTML = `<h2 class="section-title">The next 7 days</h2><div class="week-grid">${cards.join("")}</div>`;
+    }
+
+    function renderSetup() {
+      const root = document.getElementById("view-setup");
+      const { people, chores } = state.config;
+      const editing = state.editingChore
+        ? chores.find((c) => c.name === state.editingChore)
+        : null;
+
+      const peopleRows = people.map((p, i) => `
+        <div class="person-row">
+          <div class="avatar">${esc(initials(p.name))}</div>
+          <div class="chore-main">
+            <div class="chore-name">${esc(p.name)}</div>
+            <div class="chore-meta">${esc(p.email)}</div>
+          </div>
+          <button class="btn btn-ghost small" data-move-up="${i}" ${i === 0 ? "disabled" : ""} title="Move up (rotation order)">↑</button>
+          <button class="btn btn-ghost small" data-move-down="${i}" ${i === people.length - 1 ? "disabled" : ""} title="Move down (rotation order)">↓</button>
+          <button class="btn btn-danger" data-remove-person="${esc(p.name)}">Remove</button>
+        </div>`).join("");
+
+      const choreRows = chores.map((c) => `
+        <div class="chore-config-row">
+          <div class="chore-main">
+            <div class="chore-name">${esc(c.name)}</div>
+            <div class="chore-meta">
+              ${c.days.length === 7 ? "every day" : c.days.map((d) => WEEKDAY_SHORT[d]).join(", ")}
+              · ${esc(c.rotation)} rotation · ${c.assignees.map(esc).join(" → ")}
+            </div>
+          </div>
+          <button class="btn btn-ghost" data-edit-chore="${esc(c.name)}">Edit</button>
+          <button class="btn btn-danger" data-remove-chore="${esc(c.name)}">Remove</button>
+        </div>`).join("");
+
+      const dayChips = WEEKDAY_SHORT.map((d, i) => `
+        <button type="button" class="chip" data-day="${i}">${d}</button>`).join("");
+
+      const peopleChecks = people.map((p) => `
+        <label class="chip" style="cursor:pointer">
+          <input type="checkbox" value="${esc(p.name)}" data-assignee> ${esc(p.name)}
+        </label>`).join("");
+
+      root.innerHTML = `
+        <div class="card">
+          <h2 class="section-title">Household</h2>
+          <div class="form-grid">
+            <label class="field">Household name
+              <input type="text" id="cfg-household" value="${esc(state.config.household)}">
+            </label>
+            <label class="field">Morning send time (for the CLI)
+              <input type="text" id="cfg-sendtime" value="${esc(state.config.sendTime)}">
+            </label>
+          </div>
+          <div class="btn-row"><button class="btn btn-primary" id="save-household">Save details</button></div>
+        </div>
+
+        <div class="card">
+          <h2 class="section-title">People <span class="date">top → bottom = rotation order</span></h2>
+          ${peopleRows || `<p class="muted small">No people yet — add the first below.</p>`}
+          <div class="form-grid">
+            <label class="field">Name <input type="text" id="person-name" placeholder="Alice"></label>
+            <label class="field">Email <input type="email" id="person-email" placeholder="alice@example.com"></label>
+          </div>
+          <div class="btn-row"><button class="btn btn-primary" id="add-person">Add person</button></div>
+        </div>
+
+        <div class="card">
+          <h2 class="section-title">Chores</h2>
+          ${choreRows || `<p class="muted small">No chores yet — add the first below.</p>`}
+          <h3 style="margin:18px 0 0">${editing ? `Edit “${esc(editing.name)}”` : "Add a chore"}</h3>
+          <div class="form-grid">
+            <label class="field">Chore name <input type="text" id="chore-name" placeholder="Dishes" value="${editing ? esc(editing.name) : ""}"></label>
+            <label class="field">Rotation
+              <select id="chore-rotation">
+                <option value="daily"${editing && editing.rotation === "daily" ? " selected" : ""}>daily — next person each time</option>
+                <option value="weekly"${editing && editing.rotation === "weekly" ? " selected" : ""}>weekly — same person all week</option>
+              </select>
+            </label>
+          </div>
+          <p class="small muted" style="margin:12px 0 6px">Days:</p>
+          <div class="day-chips" id="chore-days">
+            ${dayChips}
+            <button type="button" class="chip" data-days-preset="daily">daily</button>
+            <button type="button" class="chip" data-days-preset="weekdays">weekdays</button>
+            <button type="button" class="chip" data-days-preset="weekends">weekends</button>
+          </div>
+          <p class="small muted" style="margin:12px 0 6px">Responsible (checked = in rotation):</p>
+          <div class="day-chips" id="chore-people">${peopleChecks}</div>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="save-chore">${editing ? "Save changes" : "Add chore"}</button>
+            ${editing ? `<button class="btn btn-ghost" id="cancel-edit">Cancel</button>` : ""}
+          </div>
+        </div>`;
+
+      root.querySelector("#save-household").addEventListener("click", () => {
+        state.config.household = root.querySelector("#cfg-household").value.trim() || "Our household";
+        state.config.sendTime = root.querySelector("#cfg-sendtime").value.trim() || "07:00";
+        state.isExample = false;
+        saveState();
+        render();
+      });
+
+      root.querySelector("#add-person").addEventListener("click", () => {
+        const name = root.querySelector("#person-name").value.trim();
+        const email = root.querySelector("#person-email").value.trim();
+        if (!name || !email.includes("@")) { alert("Please enter a name and a valid email."); return; }
+        if (state.config.people.some((p) => p.name.toLowerCase() === name.toLowerCase())) {
+          alert("Someone with that name already exists."); return;
+        }
+        state.config.people.push({ name, email });
+        state.isExample = false;
+        saveState();
+        render();
+      });
+
+      root.querySelectorAll("[data-remove-person]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const name = btn.dataset.removePerson;
+          const used = state.config.chores.filter((c) => c.assignees.includes(name));
+          if (used.length) {
+            alert(`${name} is still assigned to: ${used.map((c) => c.name).join(", ")}\nUpdate those chores first.`);
+            return;
+          }
+          state.config.people = state.config.people.filter((p) => p.name !== name);
+          saveState();
+          render();
+        });
+      });
+
+      root.querySelectorAll("[data-move-up], [data-move-down]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const up = btn.hasAttribute("data-move-up");
+          const i = Number(up ? btn.dataset.moveUp : btn.dataset.moveDown);
+          const j = up ? i - 1 : i + 1;
+          const { people } = state.config;
+          if (j < 0 || j >= people.length) return;
+          [people[i], people[j]] = [people[j], people[i]];
+          saveState();
+          render();
+        });
+      });
+
+      const dayContainer = root.querySelector("#chore-days");
+      const dayButtons = [...dayContainer.querySelectorAll("[data-day]")];
+      const setDays = (indices) => {
+        dayButtons.forEach((b) => b.classList.toggle("on", indices.has(Number(b.dataset.day))));
+      };
+      if (editing) setDays(new Set(editing.days));
+      else setDays(new Set([0, 2, 4]));
+
+      dayButtons.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          btn.classList.toggle("on");
+        });
+      });
+      dayContainer.querySelectorAll("[data-days-preset]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          setDays(new Set(parseDays(btn.dataset.daysPreset) || []));
+        });
+      });
+
+      if (editing) {
+        root.querySelectorAll("[data-assignee]").forEach((box) => {
+          box.checked = editing.assignees.includes(box.value);
+        });
+      }
+
+      root.querySelector("#save-chore").addEventListener("click", () => {
+        const name = root.querySelector("#chore-name").value.trim();
+        const days = dayButtons.filter((b) => b.classList.contains("on")).map((b) => Number(b.dataset.day));
+        const assignees = [...root.querySelectorAll("[data-assignee]:checked")].map((b) => b.value);
+        const rotation = root.querySelector("#chore-rotation").value;
+        if (!name) { alert("Give the chore a name."); return; }
+        if (!days.length) { alert("Pick at least one day."); return; }
+        if (!assignees.length) { alert("Check at least one responsible person."); return; }
+        const duplicate = state.config.chores.some((c) => c.name.toLowerCase() === name.toLowerCase() && c.name !== state.editingChore);
+        if (duplicate) { alert("A chore with that name already exists."); return; }
+
+        if (state.editingChore) {
+          const chore = state.config.chores.find((c) => c.name === state.editingChore);
+          Object.assign(chore, { name, days: days.sort((a, b) => a - b), assignees, rotation });
+          state.editingChore = null;
+        } else {
+          state.config.chores.push({ name, days: days.sort((a, b) => a - b), assignees, rotation });
+        }
+        state.isExample = false;
+        saveState();
+        render();
+      });
+
+      const cancel = root.querySelector("#cancel-edit");
+      if (cancel) cancel.addEventListener("click", () => { state.editingChore = null; render(); });
+
+      root.querySelectorAll("[data-edit-chore]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.editingChore = btn.dataset.editChore;
+          render();
+        });
+      });
+
+      root.querySelectorAll("[data-remove-chore]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          state.config.chores = state.config.chores.filter((c) => c.name !== btn.dataset.removeChore);
+          if (state.editingChore === btn.dataset.removeChore) state.editingChore = null;
+          saveState();
+          render();
+        });
+      });
+    }
+
+    /* ------------------------------------------------------- share */
+
+    function configJson() {
+      return JSON.stringify({
+        household: state.config.household,
+        sendTime: state.config.sendTime,
+        people: state.config.people,
+        chores: state.config.chores.map((c) => ({
+          name: c.name,
+          days: c.days.map((d) => WEEKDAY_SHORT[d]),
+          assignees: c.assignees,
+          rotation: c.rotation,
+        })),
+      }, null, 2);
+    }
+
+    function shareUrl() {
+      const payload = btoa(unescape(encodeURIComponent(configJson())))
+        .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      return `${location.origin}${location.pathname}#c=${payload}`;
+    }
+
+    function householdYaml() {
+      const q = (s) => `"${String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+      const lines = [
+        "# Chore Scheduler configuration -- generated from the website.",
+        "# Put this at config/household.yaml in the CLI repo to get automatic morning emails.",
+        "",
+        `household: ${q(state.config.household)}`,
+        "",
+        "notify:",
+        `  send_time: ${q(state.config.sendTime)}`,
+        "",
+        "people:",
+      ];
+      for (const p of state.config.people) {
+        lines.push(`  - name: ${q(p.name)}`, `    email: ${q(p.email)}`);
+      }
+      lines.push("", "chores:");
+      for (const c of state.config.chores) {
+        const days = c.days.length === 7 ? "daily" : `[${c.days.map((d) => WEEKDAY_SHORT[d]).join(", ")}]`;
+        lines.push(
+          `  - name: ${q(c.name)}`,
+          `    days: ${days}`,
+          `    assignees: [${c.assignees.map(q).join(", ")}]`,
+          `    rotation: ${c.rotation}`,
+        );
+      }
+      return lines.join("\n") + "\n";
+    }
+
+    function downloadFile(filename, text, type) {
+      const blob = new Blob([text], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function renderShare() {
+      const root = document.getElementById("view-share");
+      root.innerHTML = `
+        <div class="card">
+          <h2 class="section-title">Share your schedule</h2>
+          <div class="share-list">
+            <div class="share-item">
+              <h3>🔗 Invite link</h3>
+              <p>Anyone with this link gets a copy of your schedule (people, chores, rotations) in their browser. Your done-checkmarks and history are never shared.</p>
+              <textarea id="share-link" readonly>${esc(shareUrl())}</textarea>
+              <div class="btn-row"><button class="btn btn-primary" id="copy-link">Copy link</button></div>
+            </div>
+            <div class="share-item">
+              <h3>📄 Backup / move devices</h3>
+              <p>Export your setup as JSON, or paste a previously exported file or invite link to restore it here.</p>
+              <textarea id="share-json" placeholder="Paste exported JSON or a share link here to import..."></textarea>
+              <div class="btn-row">
+                <button class="btn btn-ghost" id="export-json">Export JSON</button>
+                <button class="btn btn-primary" id="import-json">Import</button>
+              </div>
+            </div>
+            <div class="share-item">
+              <h3>📬 Automatic morning emails (CLI)</h3>
+              <p>Download this schedule as <code>household.yaml</code> and drop it into the
+              <a href="https://github.com/namit1333/chore-scheduler">Chore Scheduler CLI</a> repo
+              to have each responsible person emailed their chores every morning.</p>
+              <div class="btn-row"><button class="btn btn-primary" id="download-yaml">Download household.yaml</button></div>
+            </div>
+          </div>
+        </div>`;
+
+      root.querySelector("#copy-link").addEventListener("click", async () => {
+        const text = root.querySelector("#share-link").value;
+        try {
+          await navigator.clipboard.writeText(text);
+        } catch (err) {
+          const box = root.querySelector("#share-link");
+          box.select();
+          document.execCommand("copy");
+        }
+        const btn = root.querySelector("#copy-link");
+        btn.textContent = "Copied ✓";
+        setTimeout(() => { btn.textContent = "Copy link"; }, 1500);
+      });
+
+      root.querySelector("#export-json").addEventListener("click", () => {
+        downloadFile("chore-schedule.json", configJson(), "application/json");
+        root.querySelector("#share-json").value = configJson();
+      });
+
+      root.querySelector("#import-json").addEventListener("click", () => {
+        let text = root.querySelector("#share-json").value.trim();
+        if (!text) { alert("Paste a JSON export or a share link first."); return; }
+        const hashMatch = text.match(/#c=([A-Za-z0-9\-_]+)/);
+        if (hashMatch) {
+          try {
+            const b64 = hashMatch[1].replace(/-/g, "+").replace(/_/g, "/");
+            text = decodeURIComponent(escape(atob(b64)));
+          } catch (err) { alert("That share link could not be read."); return; }
+        }
+        try {
+          const raw = JSON.parse(text);
+          const config = normalizeConfig(raw.config || raw);
+          if (!config.people.length || !config.chores.length) {
+            alert("That file has no usable people/chores."); return;
+          }
+          state.config = config;
+          state.isExample = false;
+          saveState();
+          currentView = "today";
+          render();
+        } catch (err) {
+          alert("That does not look like a valid export.");
+        }
+      });
+
+      root.querySelector("#download-yaml").addEventListener("click", () => {
+        downloadFile("household.yaml", householdYaml(), "text/yaml");
+      });
+    }
+
+    /* -------------------------------------------------------- boot */
+
+    function tryLoadShared() {
+      const match = location.hash.match(/#c=([A-Za-z0-9\-_]+)/);
+      if (!match) return;
+      try {
+        const b64 = match[1].replace(/-/g, "+").replace(/_/g, "/");
+        const json = decodeURIComponent(escape(atob(b64)));
+        const config = normalizeConfig(JSON.parse(json));
+        if (config.people.length && config.chores.length) {
+          state.config = config;
+          state.isExample = false;
+          saveState();
+        }
+      } catch (err) { /* ignore malformed links */ }
+    }
+
+    document.querySelectorAll(".tab").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        currentView = btn.dataset.view;
+        render();
+      });
+    });
+
+    tryLoadShared();
+    loadState();
+    render();
+  </script>
+</body>
+</html>
