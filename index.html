@@ -105,8 +105,8 @@
       padding: 24px 22px 48px;
     }
 
-    .view { display: flex; flex-direction: column; gap: 18px; }
-    .view[hidden] { display: none; }
+    .view { display: none; flex-direction: column; gap: 18px; }
+    .view.active { display: flex; }
 
     .card {
       background: var(--surface);
@@ -356,9 +356,9 @@
 
   <main>
     <section id="view-today" class="view"></section>
-    <section id="view-week" class="view" hidden></section>
-    <section id="view-setup" class="view" hidden></section>
-    <section id="view-share" class="view" hidden></section>
+    <section id="view-week" class="view"></section>
+    <section id="view-setup" class="view"></section>
+    <section id="view-share" class="view"></section>
   </main>
 
   <footer class="footer">
@@ -384,8 +384,8 @@
     const DAY_MS = 86400000;
     const WEEKDAY_SHORT = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
     const WEEKDAY_LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-    const STORAGE_KEY = "choreScheduler.v1";
-    const DONE_KEY = "choreScheduler.done.v1";
+    const STORAGE_KEY = "choreScheduler.v2";
+    const DONE_KEY = "choreScheduler.done.v2";
 
     function esc(value) {
       return String(value).replace(/[&<>"']/g, (ch) => ({
@@ -475,27 +475,16 @@
 
     /* ------------------------------------------------------- state */
 
-    const EXAMPLE_CONFIG = {
-      household: "Maple Street House",
+    const EMPTY_CONFIG = {
+      household: "",
       sendTime: "07:00",
-      people: [
-        { name: "Alice", email: "alice@example.com" },
-        { name: "Bob", email: "bob@example.com" },
-        { name: "Carol", email: "carol@example.com" },
-      ],
-      chores: [
-        { name: "Dishes", days: [0, 2, 4], assignees: ["Alice", "Bob"], rotation: "daily" },
-        { name: "Trash & recycling", days: [1, 5], assignees: ["Alice", "Bob", "Carol"], rotation: "daily" },
-        { name: "Vacuum downstairs", days: [5], assignees: ["Bob", "Carol"], rotation: "weekly" },
-        { name: "Clean the kitchen", days: [6], assignees: ["Alice", "Carol"], rotation: "weekly" },
-        { name: "Water the plants", days: [0, 1, 2, 3, 4, 5, 6], assignees: ["Alice", "Bob", "Carol"], rotation: "daily" },
-      ],
+      people: [],
+      chores: [],
     };
 
     let state = {
       config: null,
       done: {},            // { "2026-09-30": { "Dishes": true } } -- never shared
-      isExample: false,
       editingChore: null,
     };
 
@@ -529,22 +518,18 @@
         const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
         const done = JSON.parse(localStorage.getItem(DONE_KEY) || "null") || {};
         const savedConfig = saved && (saved.config || saved);
-        if (savedConfig && Array.isArray(savedConfig.people) && savedConfig.people.length) {
+        if (savedConfig && Array.isArray(savedConfig.people)) {
           state.config = normalizeConfig(savedConfig);
-          state.isExample = !!saved.isExample;
           state.done = done;
           return;
         }
-      } catch (err) { /* fall through to the example */ }
-      state.config = normalizeConfig(EXAMPLE_CONFIG);
-      state.isExample = true;
+      } catch (err) { /* fall through to an empty household */ }
+      state.config = normalizeConfig(EMPTY_CONFIG);
       state.done = {};
     }
 
     function saveState() {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        config: state.config, isExample: state.isExample,
-      }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ config: state.config }));
       localStorage.setItem(DONE_KEY, JSON.stringify(state.done));
     }
 
@@ -566,13 +551,13 @@
 
     function render() {
       document.getElementById("household-name").textContent =
-        state.config.household + (state.isExample ? " · example schedule" : "");
+        state.config.household || "set up your household";
       document.querySelectorAll(".tab").forEach((btn) => {
         btn.classList.toggle("active", btn.dataset.view === currentView);
         btn.setAttribute("aria-selected", btn.dataset.view === currentView ? "true" : "false");
       });
       for (const view of ["today", "week", "setup", "share"]) {
-        document.getElementById(`view-${view}`).hidden = view !== currentView;
+        document.getElementById(`view-${view}`).classList.toggle("active", view === currentView);
       }
       ({ today: renderToday, week: renderWeek, setup: renderSetup, share: renderShare })[currentView]();
     }
@@ -602,17 +587,12 @@
       root.innerHTML = `
         <div class="card">
           <h2 class="section-title">Today <span class="date">${esc(formatDateLong(date))}</span></h2>
-          ${state.isExample ? `
-            <div class="notice">
-              This is a <strong>sample household</strong> so you can see how it works.
-              Open <strong>Setup</strong> to add your own people and chores.
-            </div>` : ""}
           ${assignments.length ? `
             <div class="progress" title="${doneCount} of ${assignments.length} done"><div style="width:${pct}%"></div></div>
             <p class="muted small">${doneCount} of ${assignments.length} done${doneCount === assignments.length ? " — all clear! 🎉" : ""}</p>
             <ul class="chore-list">${rows}</ul>
           ` : `
-            <p class="muted">No chores scheduled for today. 🎉</p>
+            <p class="muted">${state.config.chores.length ? "No chores scheduled for today. 🎉" : "Nothing here yet — open the <strong>Setup</strong> tab to create your household."}</p>
           `}
         </div>
         <div class="card">
@@ -713,16 +693,6 @@
         </div>
 
         <div class="card">
-          <h2 class="section-title">People <span class="date">top → bottom = rotation order</span></h2>
-          ${peopleRows || `<p class="muted small">No people yet — add the first below.</p>`}
-          <div class="form-grid">
-            <label class="field">Name <input type="text" id="person-name" placeholder="Alice"></label>
-            <label class="field">Email <input type="email" id="person-email" placeholder="alice@example.com"></label>
-          </div>
-          <div class="btn-row"><button class="btn btn-primary" id="add-person">Add person</button></div>
-        </div>
-
-        <div class="card">
           <h2 class="section-title">Chores</h2>
           ${choreRows || `<p class="muted small">No chores yet — add the first below.</p>`}
           <h3 style="margin:18px 0 0">${editing ? `Edit “${esc(editing.name)}”` : "Add a chore"}</h3>
@@ -743,17 +713,26 @@
             <button type="button" class="chip" data-days-preset="weekends">weekends</button>
           </div>
           <p class="small muted" style="margin:12px 0 6px">Responsible (checked = in rotation):</p>
-          <div class="day-chips" id="chore-people">${peopleChecks}</div>
+          <div class="day-chips" id="chore-people">${people.length ? peopleChecks : `<span class="muted small">Add people in the card below first, then assign them here.</span>`}</div>
           <div class="btn-row">
             <button class="btn btn-primary" id="save-chore">${editing ? "Save changes" : "Add chore"}</button>
             ${editing ? `<button class="btn btn-ghost" id="cancel-edit">Cancel</button>` : ""}
           </div>
+        </div>
+
+        <div class="card">
+          <h2 class="section-title">People <span class="date">top → bottom = rotation order</span></h2>
+          ${peopleRows || `<p class="muted small">No people yet — add the first below.</p>`}
+          <div class="form-grid">
+            <label class="field">Name <input type="text" id="person-name" placeholder="Alice"></label>
+            <label class="field">Email <input type="email" id="person-email" placeholder="alice@example.com"></label>
+          </div>
+          <div class="btn-row"><button class="btn btn-primary" id="add-person">Add person</button></div>
         </div>`;
 
       root.querySelector("#save-household").addEventListener("click", () => {
         state.config.household = root.querySelector("#cfg-household").value.trim() || "Our household";
         state.config.sendTime = root.querySelector("#cfg-sendtime").value.trim() || "07:00";
-        state.isExample = false;
         saveState();
         render();
       });
@@ -766,7 +745,6 @@
           alert("Someone with that name already exists."); return;
         }
         state.config.people.push({ name, email });
-        state.isExample = false;
         saveState();
         render();
       });
@@ -804,7 +782,7 @@
         dayButtons.forEach((b) => b.classList.toggle("on", indices.has(Number(b.dataset.day))));
       };
       if (editing) setDays(new Set(editing.days));
-      else setDays(new Set([0, 2, 4]));
+      else setDays(new Set());
 
       dayButtons.forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -841,7 +819,6 @@
         } else {
           state.config.chores.push({ name, days: days.sort((a, b) => a - b), assignees, rotation });
         }
-        state.isExample = false;
         saveState();
         render();
       });
@@ -994,7 +971,6 @@
             alert("That file has no usable people/chores."); return;
           }
           state.config = config;
-          state.isExample = false;
           saveState();
           currentView = "today";
           render();
@@ -1019,7 +995,6 @@
         const config = normalizeConfig(JSON.parse(json));
         if (config.people.length && config.chores.length) {
           state.config = config;
-          state.isExample = false;
           saveState();
         }
       } catch (err) { /* ignore malformed links */ }
