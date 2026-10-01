@@ -340,9 +340,13 @@
     .footer p { margin: 0 auto; max-width: 620px; }
 
     @media (max-width: 560px) {
-      .topbar { padding: 14px 16px; }
+      .topbar { padding: 14px 16px; gap: 10px; }
       main { padding: 18px 16px 40px; }
       .brand h1 { font-size: 17px; }
+      .brand-mark { font-size: 28px; }
+      /* keep all five tabs on one row on a phone-width screen */
+      .tabs { gap: 4px; }
+      .tab { padding: 7px 11px; font-size: 13px; }
       .chore-row { flex-wrap: wrap; }
     }    .toast {
       position: fixed;
