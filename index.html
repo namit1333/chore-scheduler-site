@@ -2,9 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Chore Scheduler — track household chores</title>
   <meta name="description" content="Create a chore schedule, see who is responsible today, and track chores together. Free, private, and works in your browser.">
+  <meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#12151d" media="(prefers-color-scheme: dark)">
+  <!-- Installing it on a phone: manifest for Android/Chrome, the apple-* tags
+       for iOS (Safari ignores the manifest icons and uses apple-touch-icon). -->
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Chores">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
   <style>
     /* Chore Scheduler — clean, responsive, light/dark via prefers-color-scheme. */
@@ -348,6 +358,17 @@
       z-index: 50;
     }
     .toast[hidden] { display: none; }
+
+    /* Installed (home-screen) app: keep the sticky bar, the toast and the
+       footer clear of the iPhone status bar / home indicator. */
+    .topbar {
+      padding-top: calc(18px + env(safe-area-inset-top));
+      padding-left: calc(22px + env(safe-area-inset-left));
+      padding-right: calc(22px + env(safe-area-inset-right));
+    }
+    main { padding-left: calc(22px + env(safe-area-inset-left)); padding-right: calc(22px + env(safe-area-inset-right)); }
+    .footer { padding-bottom: calc(34px + env(safe-area-inset-bottom)); }
+    .toast { bottom: calc(28px + env(safe-area-inset-bottom)); }
     </style>
 </head>
 <body>
@@ -936,6 +957,14 @@
         <div class="card">
           <h2 class="section-title">Share your schedule</h2>
           <div class="share-list">
+            ${isStandalone() ? "" : `
+            <div class="share-item">
+              <h3>📲 Put it on your phone</h3>
+              <p>On an <strong>iPhone or iPad</strong>: open this page in <strong>Safari</strong>, tap
+              <strong>Share</strong> and choose <strong>Add to Home Screen</strong> — it gets its own icon,
+              opens full screen and keeps working offline. On <strong>Android</strong>, use the browser
+              menu's <strong>Install app</strong> / <strong>Add to Home screen</strong>.</p>
+            </div>`}
             <div class="share-item">
               <h3>🔗 Invite link</h3>
               <p>Anyone with this link gets a copy of your schedule (people, chores, rotations) in their browser. Your done-checkmarks and history are never shared.</p>
@@ -1033,6 +1062,13 @@
     function browserTz() {
       try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
       catch (err) { return "UTC"; }
+    }
+
+    /** True when the page is running as an installed home-screen app. */
+    function isStandalone() {
+      try {
+        return window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+      } catch (err) { return false; }
     }
 
     function showToast(message) {
@@ -1381,6 +1417,15 @@
         render();
       });
     });
+
+    /* Offline shell for the installed app: a tiny service worker caches this
+       page and its icons. Harmless where service workers are unavailable
+       (opened from a file, or an old browser). */
+    if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("sw.js").catch(() => { /* offline support is optional */ });
+      });
+    }
 
     handleAuthRedirect();
     tryLoadShared();
