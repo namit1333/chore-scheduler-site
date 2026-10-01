@@ -334,8 +334,21 @@
       main { padding: 18px 16px 40px; }
       .brand h1 { font-size: 17px; }
       .chore-row { flex-wrap: wrap; }
+    }    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 28px;
+      transform: translateX(-50%);
+      background: #111827;
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 14px;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+      z-index: 50;
     }
-  </style>
+    .toast[hidden] { display: none; }
+    </style>
 </head>
 <body>
   <header class="topbar">
@@ -351,6 +364,7 @@
       <button class="tab" data-view="week" role="tab">Week</button>
       <button class="tab" data-view="setup" role="tab">Setup</button>
       <button class="tab" data-view="share" role="tab">Share</button>
+      <button class="tab" data-view="emails" role="tab">Emails</button>
     </nav>
   </header>
 
@@ -359,16 +373,20 @@
     <section id="view-week" class="view"></section>
     <section id="view-setup" class="view"></section>
     <section id="view-share" class="view"></section>
+    <section id="view-emails" class="view"></section>
   </main>
 
   <footer class="footer">
     <p>
-      Everything stays in your browser — no account, no server.
-      Want automatic morning emails? Pair this with the
+      Everything stays in your browser unless you turn on the
+      <strong>Emails</strong> tab — then your household is emailed every morning
+      automatically. Prefer to run it yourself? Use the
       <a href="https://github.com/namit1333/chore-scheduler">Chore Scheduler CLI</a>
-      and download your <code>household.yaml</code> from the Share tab.
+      with the <code>household.yaml</code> from the Share tab.
     </p>
   </footer>
+
+  <div id="toast" class="toast" hidden></div>
 
   <script>
     /* Chore Scheduler web app — no build step, no server, no dependencies.
@@ -478,6 +496,7 @@
     const EMPTY_CONFIG = {
       household: "",
       sendTime: "07:00",
+      tz: "",
       people: [],
       chores: [],
     };
@@ -486,12 +505,14 @@
       config: null,
       done: {},            // { "2026-09-30": { "Dishes": true } } -- never shared
       editingChore: null,
+      suppressSync: false, // true while loading from the cloud
     };
 
     function normalizeConfig(raw) {
       const config = {
         household: String(raw.household || "Our household"),
         sendTime: String(raw.sendTime || raw.send_time || "07:00"),
+        tz: String(raw.tz || ""),
         people: [],
         chores: [],
       };
@@ -531,6 +552,7 @@
     function saveState() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ config: state.config }));
       localStorage.setItem(DONE_KEY, JSON.stringify(state.done));
+      scheduleCloudSync();
     }
 
     function isDone(date, choreName) {
@@ -556,10 +578,10 @@
         btn.classList.toggle("active", btn.dataset.view === currentView);
         btn.setAttribute("aria-selected", btn.dataset.view === currentView ? "true" : "false");
       });
-      for (const view of ["today", "week", "setup", "share"]) {
+      for (const view of ["today", "week", "setup", "share", "emails"]) {
         document.getElementById(`view-${view}`).classList.toggle("active", view === currentView);
       }
-      ({ today: renderToday, week: renderWeek, setup: renderSetup, share: renderShare })[currentView]();
+      ({ today: renderToday, week: renderWeek, setup: renderSetup, share: renderShare, emails: renderEmails })[currentView]();
     }
 
     function renderToday() {
@@ -685,8 +707,11 @@
             <label class="field">Household name
               <input type="text" id="cfg-household" value="${esc(state.config.household)}">
             </label>
-            <label class="field">Morning send time (for the CLI)
+            <label class="field">Morning send time
               <input type="text" id="cfg-sendtime" value="${esc(state.config.sendTime)}">
+            </label>
+            <label class="field">Timezone (for the morning emails)
+              <input type="text" id="cfg-tz" value="${esc(state.config.tz)}" placeholder="${esc(browserTz())}">
             </label>
           </div>
           <div class="btn-row"><button class="btn btn-primary" id="save-household">Save details</button></div>
@@ -733,6 +758,7 @@
       root.querySelector("#save-household").addEventListener("click", () => {
         state.config.household = root.querySelector("#cfg-household").value.trim() || "Our household";
         state.config.sendTime = root.querySelector("#cfg-sendtime").value.trim() || "07:00";
+        state.config.tz = root.querySelector("#cfg-tz").value.trim() || browserTz();
         saveState();
         render();
       });
@@ -926,10 +952,12 @@
               </div>
             </div>
             <div class="share-item">
-              <h3>📬 Automatic morning emails (CLI)</h3>
-              <p>Download this schedule as <code>household.yaml</code> and drop it into the
+              <h3>🖥️ Self-hosted emails (CLI)</h3>
+              <p>Prefer to run everything yourself? Download this schedule as
+              <code>household.yaml</code> and drop it into the
               <a href="https://github.com/namit1333/chore-scheduler">Chore Scheduler CLI</a> repo
-              to have each responsible person emailed their chores every morning.</p>
+              to have each responsible person emailed their chores every morning.
+              (The <strong>Emails</strong> tab does all of this without the CLI.)</p>
               <div class="btn-row"><button class="btn btn-primary" id="download-yaml">Download household.yaml</button></div>
             </div>
           </div>
@@ -984,6 +1012,353 @@
       });
     }
 
+    /* ---------------------------------------------------- cloud emails
+     *
+     * Optional "automatic morning emails" backend (docs/SETUP_CLOUD.md):
+     * a free Supabase project holds households and a scheduled function
+     * emails everyone each morning via the Gmail API.
+     * SITE OPERATOR: to enable it on your published copy of this site, paste
+     * your Supabase project values below. Left empty, the site stays fully
+     * local -- no account, no server, exactly as before.
+     */
+    const CLOUD_URL = "";       // e.g. "https://abcdefgh.supabase.co"
+    const CLOUD_ANON_KEY = "";  // the project's public "anon" key
+
+    const SESSION_KEY = "choreScheduler.cloud.session";
+
+    function cloudConfigured() {
+      return /^https:\/\//.test(CLOUD_URL) && CLOUD_ANON_KEY.length > 20;
+    }
+
+    function browserTz() {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
+      catch (err) { return "UTC"; }
+    }
+
+    function showToast(message) {
+      const el = document.getElementById("toast");
+      el.textContent = message;
+      el.hidden = false;
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => { el.hidden = true; }, 3500);
+    }
+
+    function getSession() {
+      try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); }
+      catch (err) { return null; }
+    }
+
+    function setSession(session) {
+      if (session) localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+      else localStorage.removeItem(SESSION_KEY);
+    }
+
+    function cloudSignIn() {
+      const redirect = location.origin + location.pathname;
+      location.href = `${CLOUD_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirect)}`;
+    }
+
+    async function cloudSignOut() {
+      try {
+        const session = getSession();
+        if (session) {
+          await fetch(`${CLOUD_URL}/auth/v1/logout`, {
+            method: "POST",
+            headers: { apikey: CLOUD_ANON_KEY, Authorization: `Bearer ${session.access_token}` },
+          });
+        }
+      } catch (err) { /* ignore */ }
+      setSession(null);
+      render();
+    }
+
+    function handleAuthRedirect() {
+      if (!cloudConfigured() || !location.hash.includes("access_token=")) return;
+      const params = new URLSearchParams(location.hash.slice(1));
+      const access_token = params.get("access_token");
+      const refresh_token = params.get("refresh_token");
+      if (access_token && refresh_token) {
+        setSession({
+          access_token,
+          refresh_token,
+          expires_at: Date.now() + (Number(params.get("expires_in")) || 3600) * 1000,
+        });
+        showToast("Signed in with Google ✓");
+      }
+      history.replaceState(null, "", location.pathname);
+    }
+
+    async function refreshSession() {
+      const session = getSession();
+      if (!session) return null;
+      const res = await fetch(`${CLOUD_URL}/auth/v1/token?grant_type=refresh_token`, {
+        method: "POST",
+        headers: { apikey: CLOUD_ANON_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: session.refresh_token }),
+      });
+      if (!res.ok) { setSession(null); return null; }
+      const data = await res.json();
+      const next = {
+        access_token: data.access_token,
+        refresh_token: data.refresh_token || session.refresh_token,
+        expires_at: Date.now() + (Number(data.expires_in) || 3600) * 1000,
+      };
+      setSession(next);
+      return next;
+    }
+
+    async function cloudFetch(path, options = {}) {
+      let session = getSession();
+      if (session && (!session.expires_at || session.expires_at - 60000 < Date.now())) {
+        session = await refreshSession();
+      }
+      const res = await fetch(`${CLOUD_URL}${path}`, {
+        ...options,
+        headers: {
+          apikey: CLOUD_ANON_KEY,
+          Authorization: `Bearer ${session ? session.access_token : CLOUD_ANON_KEY}`,
+          "Content-Type": "application/json",
+          ...(options.headers || {}),
+        },
+      });
+      if (res.status === 204) return null;
+      const text = await res.text();
+      if (!res.ok) throw new Error(`${res.status}: ${text.slice(0, 300)}`);
+      return text ? JSON.parse(text) : null;
+    }
+
+    function cloudUser() {
+      return cloudFetch("/auth/v1/user");
+    }
+
+    async function cloudSave() {
+      const user = await cloudUser();
+      const c = state.config;
+      const rows = await cloudFetch("/rest/v1/households?on_conflict=owner_id", {
+        method: "POST",
+        headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+        body: JSON.stringify([{
+          owner_id: user.id,
+          name: c.household || "Our household",
+          send_time: c.sendTime || "07:00",
+          tz: c.tz || browserTz(),
+        }]),
+      });
+      const householdId = rows[0].id;
+      await cloudFetch(`/rest/v1/members?household_id=eq.${householdId}`, {
+        method: "DELETE", headers: { Prefer: "return=minimal" },
+      });
+      await cloudFetch(`/rest/v1/chores?household_id=eq.${householdId}`, {
+        method: "DELETE", headers: { Prefer: "return=minimal" },
+      });
+      if (c.people.length) {
+        await cloudFetch("/rest/v1/members", {
+          method: "POST", headers: { Prefer: "return=minimal" },
+          body: JSON.stringify(c.people.map((p, i) => ({
+            household_id: householdId, name: p.name, email: p.email, position: i,
+          }))),
+        });
+      }
+      if (c.chores.length) {
+        await cloudFetch("/rest/v1/chores", {
+          method: "POST", headers: { Prefer: "return=minimal" },
+          body: JSON.stringify(c.chores.map((ch, i) => ({
+            household_id: householdId, name: ch.name, days: ch.days,
+            assignees: ch.assignees, rotation: ch.rotation, position: i,
+          }))),
+        });
+      }
+      return householdId;
+    }
+
+    async function cloudLoadConfig() {
+      const user = await cloudUser();
+      const rows = await cloudFetch(
+        `/rest/v1/households?select=name,send_time,tz,` +
+        `members(name,email,position),chores(name,days,assignees,rotation,position)` +
+        `&owner_id=eq.${user.id}&limit=1`,
+      );
+      if (!rows.length) return null;
+      const h = rows[0];
+      return normalizeConfig({
+        household: h.name,
+        sendTime: h.send_time,
+        tz: h.tz,
+        people: (h.members || []).sort((a, b) => (a.position || 0) - (b.position || 0)),
+        chores: (h.chores || []).sort((a, b) => (a.position || 0) - (b.position || 0)),
+      });
+    }
+
+    async function cloudTestSend() {
+      const session = getSession();
+      const res = await fetch(`${CLOUD_URL}/functions/v1/send-chores?mode=test`, {
+        method: "POST",
+        headers: {
+          apikey: CLOUD_ANON_KEY,
+          Authorization: `Bearer ${session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(`${res.status}: ${text.slice(0, 300)}`);
+      return JSON.parse(text);
+    }
+
+    let cloudSyncTimer = null;
+    function scheduleCloudSync() {
+      if (!cloudConfigured() || !getSession() || state.suppressSync) return;
+      clearTimeout(cloudSyncTimer);
+      cloudSyncTimer = setTimeout(async () => {
+        try {
+          await cloudSave();
+          showToast("☁️ Saved — automatic morning emails are ON");
+        } catch (err) {
+          showToast(`☁️ Cloud save failed (${err.message})`);
+        }
+      }, 600);
+    }
+
+    /* ------------------------------------------------------ emails tab */
+
+    function renderEmails() {
+      const root = document.getElementById("view-emails");
+      if (!cloudConfigured()) {
+        root.innerHTML = `
+          <div class="card">
+            <h2 class="section-title">📬 Automatic morning emails</h2>
+            <p>This copy of the site isn't connected to a cloud backend, so
+            automatic emails aren't available here.</p>
+            <p class="muted">Running your own copy? Follow <code>docs/SETUP_CLOUD.md</code>
+            in the <a href="https://github.com/namit1333/chore-scheduler">Chore Scheduler repo</a>
+            to connect a free Supabase project and a Gmail sender — no local install needed.</p>
+          </div>`;
+        return;
+      }
+      if (!getSession()) {
+        root.innerHTML = `
+          <div class="card">
+            <h2 class="section-title">📬 Automatic morning emails</h2>
+            <p>Sign in with Google and finish setup — your household gets emailed
+            every morning automatically, and a week-ahead digest every Sunday.</p>
+            <p class="muted">No configuration files, no terminal, nothing to install.
+            Your account is created the first time you sign in, and your schedule
+            stays private to you.</p>
+            <div class="btn-row"><button class="btn btn-primary" id="cloud-signin">Sign in with Google</button></div>
+          </div>`;
+        root.querySelector("#cloud-signin").addEventListener("click", cloudSignIn);
+        return;
+      }
+      root.innerHTML = `
+        <div class="card">
+          <h2 class="section-title">📬 Automatic morning emails</h2>
+          <p class="muted">Loading your account…</p>
+        </div>`;
+      renderEmailsSignedIn(root).catch((err) => {
+        root.innerHTML = `
+          <div class="card">
+            <h2 class="section-title">📬 Automatic morning emails</h2>
+            <p>Something went wrong loading your account: ${esc(err.message)}</p>
+            <div class="btn-row"><button class="btn btn-ghost" id="cloud-signout">Sign out</button></div>
+          </div>`;
+        root.querySelector("#cloud-signout").addEventListener("click", cloudSignOut);
+      });
+    }
+
+    async function renderEmailsSignedIn(root) {
+      const user = await cloudUser();
+      const rows = await cloudFetch(
+        `/rest/v1/households?select=id,name,send_time,tz,` +
+        `members(name,email,position),chores(name)&owner_id=eq.${user.id}&limit=1`,
+      );
+      const h = rows[0] || null;
+      let sends = [];
+      if (h) {
+        sends = await cloudFetch(
+          `/rest/v1/sent_log?select=kind,on_date,email,sent_at` +
+          `&household_id=eq.${h.id}&order=sent_at.desc&limit=8`,
+        );
+      }
+      const peopleList = (h ? h.members || [] : [])
+        .map((m) => `${esc(m.name)} &lt;${esc(m.email)}&gt;`).join(", ");
+      const sendsHtml = sends.length
+        ? `<ul class="small">${sends.map((s) =>
+            `<li>${esc(s.kind)} · ${esc(s.on_date)} · ${esc(s.email)}</li>`).join("")}</ul>`
+        : `<p class="muted small">Nothing sent yet — the first emails go out at the next send time.</p>`;
+      root.innerHTML = `
+        <div class="card">
+          <h2 class="section-title">📬 Automatic morning emails</h2>
+          ${h ? `
+            <p>✅ <strong>Emails are ON</strong> for “${esc(h.name)}”.</p>
+            <p class="muted">Every day at <strong>${esc(h.send_time)}</strong>
+            (${esc(h.tz)}) everyone below gets their chores by email — and on
+            Sundays, their whole week ahead.</p>
+            <p class="small">People: ${peopleList}</p>
+            <div class="btn-row">
+              <button class="btn btn-primary" id="send-test">Send test email now</button>
+              <button class="btn btn-ghost" id="load-cloud">Load cloud schedule here</button>
+              <button class="btn btn-ghost" id="cloud-signout">Sign out</button>
+            </div>
+            <h3 style="margin:18px 0 6px">Recent sends</h3>
+            ${sendsHtml}
+          ` : `
+            <p>✅ Signed in as <strong>${esc(user.email || "")}</strong>.</p>
+            <p>Your schedule isn't in the cloud yet. Save it once and every
+            person in your household starts getting their chores by email —
+            automatically, every morning.</p>
+            <div class="btn-row">
+              <button class="btn btn-primary" id="save-cloud">Save schedule &amp; turn on emails</button>
+              <button class="btn btn-ghost" id="cloud-signout">Sign out</button>
+            </div>
+          `}
+        </div>`;
+      const signout = root.querySelector("#cloud-signout");
+      if (signout) signout.addEventListener("click", cloudSignOut);
+      const save = root.querySelector("#save-cloud");
+      if (save) save.addEventListener("click", async () => {
+        save.disabled = true;
+        try {
+          await cloudSave();
+          showToast("✅ Emails are on!");
+          render();
+        } catch (err) {
+          alert("Cloud save failed: " + err.message);
+          save.disabled = false;
+        }
+      });
+      const test = root.querySelector("#send-test");
+      if (test) test.addEventListener("click", async () => {
+        test.disabled = true;
+        test.textContent = "Sending…";
+        try {
+          const result = await cloudTestSend();
+          const count = (result.results || []).reduce((n, r) => n + r.sent.length, 0);
+          showToast(count ? `Test email sent to ${count} people ✓` : "No test emails sent — check the setup");
+        } catch (err) {
+          alert("Test send failed: " + err.message);
+        }
+        test.disabled = false;
+        test.textContent = "Send test email now";
+      });
+      const load = root.querySelector("#load-cloud");
+      if (load) load.addEventListener("click", async () => {
+        load.disabled = true;
+        try {
+          const config = await cloudLoadConfig();
+          if (!config) { alert("No cloud schedule found yet."); return; }
+          state.suppressSync = true;
+          state.config = config;
+          saveState();
+          state.suppressSync = false;
+          showToast("Cloud schedule loaded ✓");
+          render();
+        } catch (err) {
+          alert("Load failed: " + err.message);
+          load.disabled = false;
+        }
+      });
+    }
+
     /* -------------------------------------------------------- boot */
 
     function tryLoadShared() {
@@ -1007,6 +1382,7 @@
       });
     });
 
+    handleAuthRedirect();
     tryLoadShared();
     loadState();
     render();
